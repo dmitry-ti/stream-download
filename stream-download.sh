@@ -7,7 +7,6 @@ OUTPUT_PLAYLIST="output.m3u8"
 
 getMasterPlaylist() {
   local url="$1"
-  #curl "$url" 2> /dev/null
   curl --compressed "$url" 2> /dev/null
 }
 
@@ -19,7 +18,6 @@ getMediaPlaylistUrl() {
 
 getMediaPlaylist() {
   local mediaPlaylistUrl="$1"
-  #curl "$mediaPlaylistUrl" 2>/dev/null
   curl --compressed "$mediaPlaylistUrl" 2>/dev/null
 }
 
@@ -37,6 +35,18 @@ isUrl() {
   else
     echo "false"
   fi
+}
+
+isValidMediaPlaylist() {
+  local mediaPlaylist="$1"
+
+  local header=$(echo "$mediaPlaylist" | head -n 1)
+  if [[ "$header" != "#EXTM3U" ]]; then
+    echo "false"
+    return
+  fi
+
+  echo "true"
 }
 
 getBaseUrl() {
@@ -112,6 +122,10 @@ main() {
     echo "Updating media playlist..."
     
     mediaPlaylist=$(getMediaPlaylist "$mediaPlaylistUrl")
+    if [[ "$(isValidMediaPlaylist "$mediaPlaylist")" == "false" ]]; then
+     echo "Error: Invalid media playlist"
+     return
+    fi
     
     targetDuration=$(getPlaylistTag "$mediaPlaylist" "EXT-X-TARGETDURATION")
     mediaSequence=$(getPlaylistTag "$mediaPlaylist" "EXT-X-MEDIA-SEQUENCE")
