@@ -46,17 +46,23 @@ getBaseUrl() {
 
 processMediaSegment() {
   local segmentNumber="$1"
-  local outputDir="$3"
+  local segmentUrl="$2"
+  local baseUrl="$3"
+  local outputDir="$4"
+  
   if grep "^$segmentNumber.ts$" "$outputDir/$OUTPUT_PLAYLIST" &> /dev/null; then
     return
   fi
 
   local segmentOutputName="$segmentNumber.ts"
   local wgetLogfile="$segmentNumber.log"
-  local segmentUrl="$2"
+  if [[ "$(isUrl "$segmentUrl")" == "false" ]]; then
+    segmentUrl="$baseUrl/$segmentUrl"
+  fi
   echo "$segmentOutputName" >> "$outputDir/$OUTPUT_PLAYLIST"
-  echo "Downloading segment $outputDir/$segmentOutputName"
-  wget -b -O "$outputDir/$segmentOutputName" -o "$outputDir/$wgetLogfile" "$segmentUrl" &> /dev/null
+  echo "Downloading segment $segmentUrl"
+  #wget -b -O "$outputDir/$segmentOutputName" -o "$outputDir/$wgetLogfile" "$segmentUrl" &> /dev/null
+  wget -O "$outputDir/$segmentOutputName" -o "$outputDir/$wgetLogfile" "$segmentUrl" &> /dev/null
 }
 
 main() {
@@ -79,7 +85,7 @@ main() {
   local masterPlaylist=$(getMasterPlaylist "$masterPlaylistUrl")
   
   echo "$masterPlaylist" | grep -E "^#EXT-X-STREAM-INF:.*" | nl -w1 -s": "
-  read -p "Select media to download [1]: " media
+  read -p "Select media to dowload [1]: " media
   
   if [ -z "$media" ] ; then
     media=1
@@ -99,36 +105,11 @@ main() {
   
   echo "mediaPlaylistUrl=$mediaPlaylistUrl"
   
-  local mediaPlaylist
-  local targetDuration
-  local mediaSequence
-  local updateBeginTime
-  local updateDuration
-  local sleepDuration
-
-  while true
-  do
-    updateBeginTime=$SECONDS
-    echo "Updating media playlist..."
-    
-    mediaPlaylist=$(getMediaPlaylist "$mediaPlaylistUrl")
-    
-    targetDuration=$(getPlaylistTag "$mediaPlaylist" "EXT-X-TARGETDURATION")
-    mediaSequence=$(getPlaylistTag "$mediaPlaylist" "EXT-X-MEDIA-SEQUENCE")
-    if [ -z "$mediaSequence" ]; then
-      echo "Error: Could not get media sequence"
-      return
-    fi
-    
-    echo "$mediaPlaylist" | grep -v "^#" | while IFS= read -r segmentUrl ; do if [[ "$(isUrl "$segmentUrl")" == "false" ]]; then segmentUrl="$baseUrl/$segmentUrl"; fi; processMediaSegment "$((mediaSequence++))" "$segmentUrl" "$outputDir"; done
-    
-    updateDuration=$(($SECONDS - $updateBeginTime))
-    sleepDuration=$(($targetDuration - $updateDuration))
-    if (( sleepDuration > 0 )); then
-      echo "Wating for $sleepDuration seconds..."
-      sleep "$sleepDuration"
-    fi
-  done
+  local mediaPlaylist=$(getMediaPlaylist "$mediaPlaylistUrl")
+  local segmentBaseUrl=$(getBaseUrl "$mediaPlaylistUrl")
+  local mediaSequence=0
+  
+  echo "$mediaPlaylist" | grep -v "^#" | while IFS= read -r segmentUrl ; do processMediaSegment "$((mediaSequence++))" "$segmentUrl" "$segmentBaseUrl" "$outputDir"; done
 }
 
 main "$@"
