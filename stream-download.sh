@@ -9,8 +9,8 @@ getMasterPlaylist() {
   local url="$1"
   local referer="$2"
   
-  local header="$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")"
-  local command="curl --compressed "$header" "$url" 2> /dev/null"
+  local header=$([ ! -z "$referer" ] && echo "--header \"Referer: $referer\"" || echo "")
+  local command="curl --compressed "$header" \"$url\" 2> /dev/null"
   eval "$command"
 }
 
@@ -25,8 +25,8 @@ getMediaPlaylist() {
   local mediaPlaylistUrl="$1"
   local referer="$2"
   
-  local header="$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")"
-  local command="curl --compressed "$header" "$mediaPlaylistUrl" 2>/dev/null"
+  local header=$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")
+  local command="curl --compressed "$header" \"$mediaPlaylistUrl\" 2>/dev/null"
   eval "$command"
 }
 
@@ -81,8 +81,8 @@ processMediaSegment() {
 
   echo "$segmentOutputName" >> "$outputDir/$OUTPUT_PLAYLIST"
   echo "Downloading segment $outputDir/$segmentOutputName"
-  local header="$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")"
-  local command="wget "$header" -b -O "$outputDir/$segmentOutputName" -o "$outputDir/$wgetLogfile" "$segmentUrl" &> /dev/null"
+  local header=$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")
+  local command="wget "$header" -b -O \"$outputDir/$segmentOutputName\" -o \"$outputDir/$wgetLogfile\" \"$segmentUrl\" &> /dev/null"
   eval "$command"
 }
 
