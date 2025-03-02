@@ -3,14 +3,15 @@
 STATUS_OK=0
 STATUS_ERROR=1
 
-OUTPUT_PLAYLIST="output.m3u8"
+OUTPUT_PLAYLIST_FILENAME="output.m3u8"
+MAX_RETRIES=5
 
 getMasterPlaylist() {
   local url="$1"
   local referer="$2"
   
   local header=$([ ! -z "$referer" ] && echo "--header \"Referer: $referer\"" || echo "")
-  local command="curl --compressed "$header" \"$url\" 2> /dev/null"
+  local command="curl --compressed --connect-timeout 300 --max-time 600 "$header" \"$url\" 2> /dev/null"
   eval "$command"
 }
 
@@ -22,11 +23,11 @@ getMediaPlaylistUrl() {
 }
 
 getMediaPlaylist() {
-  local mediaPlaylistUrl="$1"
+  local url="$1"
   local referer="$2"
   
   local header=$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")
-  local command="curl --compressed "$header" \"$mediaPlaylistUrl\" 2>/dev/null"
+  local command="curl --compressed --connect-timeout 300 --max-time 600 "$header" \"$url\" 2>/dev/null"
   eval "$command"
 }
 
@@ -69,35 +70,47 @@ getBaseUrl() {
 processMediaSegment() {
   local segmentNumber="$1"
   local segmentUrl="$2"
-  local outputDir="$3"
-  local referer="$4"
+  local baseUrl="$3"
+  local outputDir="$4"
+  local referer="$5"
   
-  if grep "^$segmentNumber.ts$" "$outputDir/$OUTPUT_PLAYLIST" &> /dev/null; then
+  local outputPlaylistPath="$outputDir/$OUTPUT_PLAYLIST_FILENAME"
+
+  # Check if segment was already processed
+  if grep "^$segmentNumber.ts$" "$outputPlaylistPath" &> /dev/null; then
     return
   fi
 
-  local segmentOutputName="$segmentNumber.ts"
-  local wgetLogfile="$segmentNumber.log"
+  if [[ "$(isUrl "$segmentUrl")" == "false" ]]; then
+    segmentUrl="$baseUrl/$segmentUrl"
+  fi
 
-  echo "$segmentOutputName" >> "$outputDir/$OUTPUT_PLAYLIST"
-  echo "Downloading segment $outputDir/$segmentOutputName"
+  # Start segment download in background
+  local segmentOutputFilename="$segmentNumber.ts"
+  local segmentOutputPath="$outputDir/$segmentOutputFilename"
+  local wgetLogPath="$outputDir/$segmentNumber.log"
+
+  echo "Downloading segment \"$segmentUrl\" => \"$segmentOutputPath\""
   local header=$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")
-  local command="wget "$header" -b -O \"$outputDir/$segmentOutputName\" -o \"$outputDir/$wgetLogfile\" \"$segmentUrl\" &> /dev/null"
+  local command="wget --timeout=300 "$header" -b -O \"$segmentOutputPath\" -o \"$wgetLogPath\" \"$segmentUrl\" &> /dev/null"
   eval "$command"
+
+  # Save segment filename to output playlist
+  echo "$segmentOutputFilename" >> "$outputPlaylistPath"
 }
 
 main() {
   if [[ $# < 2 || $# > 3 ]] ; then
-    echo "Usage: stream-dowload.sh <masterPlaylistUrl> <channelName> <host>"
+    echo "Usage: stream-dowload.sh <masterPlaylistUrl> <outputDirPrefix> <host>"
     exit $STATUS_ERROR
   fi
 
   local masterPlaylistUrl="$1"
-  local channel="$2"
+  local outputDirPrefix="$2"
   local host="$3"
 
   local outputDir
-  outputDir="${channel}_$(date +%Y-%m-%d_%H-%M-%S)"
+  outputDir="${outputDirPrefix}_$(date +%Y-%m-%d_%H-%M-%S)"
   mkdir "$outputDir"
   if [ $? -ne 0 ] ; then
     echo "Error: could not create output directory: $outputDir"
@@ -134,26 +147,42 @@ main() {
   local updateDuration
   local sleepDuration
 
+  local try=0
+
   while true
   do
+    if (( try >= MAX_RETRIES )); then
+      echo "Error: Too many retries"
+      return
+    fi
+
     updateBeginTime=$SECONDS
     echo "Updating media playlist..."
     
     mediaPlaylist=$(getMediaPlaylist "$mediaPlaylistUrl" "$host")
-    #isValidMediaPlaylist "$mediaPlaylist"
     if [[ "$(isValidMediaPlaylist "$mediaPlaylist")" == "false" ]]; then
-     echo "Error: Invalid media playlist"
-     return
+     echo "Warning: Invalid media playlist format"
+     ((try++))
+     continue
     fi
     
     targetDuration=$(getPlaylistTag "$mediaPlaylist" "EXT-X-TARGETDURATION")
+    if [ -z "$targetDuration" ]; then
+      echo "Warning: Could not read target duration (EXT-X-TARGETDURATION)"
+      ((try++))
+     continue
+    fi
+
     mediaSequence=$(getPlaylistTag "$mediaPlaylist" "EXT-X-MEDIA-SEQUENCE")
     if [ -z "$mediaSequence" ]; then
-      echo "Error: Could not get media sequence"
-      return
+      echo "Warning: Could not read media sequence (EXT-X-MEDIA-SEQUENCE)"
+      ((try++))
+     continue
     fi
+
+    try=0
     
-    echo "$mediaPlaylist" | grep -v "^#" | while IFS= read -r segmentUrl ; do if [[ "$(isUrl "$segmentUrl")" == "false" ]]; then segmentUrl="$baseUrl/$segmentUrl"; fi; processMediaSegment "$((mediaSequence++))" "$segmentUrl" "$outputDir" "$host"; done
+    echo "$mediaPlaylist" | grep -v "^#" | while IFS= read -r segmentUrl ; do processMediaSegment "$((mediaSequence++))" "$segmentUrl" "$baseUrl" "$outputDir" "$host"; done
     
     updateDuration=$(($SECONDS - $updateBeginTime))
     sleepDuration=$(($targetDuration - $updateDuration))
