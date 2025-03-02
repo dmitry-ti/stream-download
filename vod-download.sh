@@ -7,8 +7,11 @@ OUTPUT_PLAYLIST="output.m3u8"
 
 getMasterPlaylist() {
   local url="$1"
-  #curl "$url" 2> /dev/null
-  curl --compressed "$url" 2> /dev/null
+  local referer="$2"
+  
+  local header=$([ ! -z "$referer" ] && echo "--header \"Referer: $referer\"" || echo "")
+  local command="curl --compressed "$header" \"$url\" 2> /dev/null"
+  eval "$command"
 }
 
 getMediaPlaylistUrl() {
@@ -19,8 +22,11 @@ getMediaPlaylistUrl() {
 
 getMediaPlaylist() {
   local mediaPlaylistUrl="$1"
-  #curl "$mediaPlaylistUrl" 2>/dev/null
-  curl --compressed "$mediaPlaylistUrl" 2>/dev/null
+  local referer="$2"
+  
+  local header=$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")
+  local command="curl --compressed "$header" \"$mediaPlaylistUrl\" 2>/dev/null"
+  eval "$command"
 }
 
 getPlaylistTag() {
@@ -49,6 +55,7 @@ processMediaSegment() {
   local segmentUrl="$2"
   local baseUrl="$3"
   local outputDir="$4"
+  local referer="$5"
   
   if grep "^$segmentNumber.ts$" "$outputDir/$OUTPUT_PLAYLIST" &> /dev/null; then
     return
@@ -61,18 +68,20 @@ processMediaSegment() {
   fi
   echo "$segmentOutputName" >> "$outputDir/$OUTPUT_PLAYLIST"
   echo "Downloading segment $segmentUrl"
-  #wget -b -O "$outputDir/$segmentOutputName" -o "$outputDir/$wgetLogfile" "$segmentUrl" &> /dev/null
-  wget -O "$outputDir/$segmentOutputName" -o "$outputDir/$wgetLogfile" "$segmentUrl" &> /dev/null
+  local header=$([ ! -z $referer ] && echo "--header \"Referer: $referer\"" || echo "")
+  local command="wget "$header" -O \"$outputDir/$segmentOutputName\" -o \"$outputDir/$wgetLogfile\" \"$segmentUrl\" &> /dev/null"
+  eval "$command"
 }
 
 main() {
-  if [ $# != 2 ] ; then
-    echo "Usage: stream-dowload.sh <masterPlaylistUrl> <channelName>"
+  if [[ $# < 2 || $# > 3 ]] ; then
+    echo "Usage: vod-dowload.sh <masterPlaylistUrl> <channelName> <host>"
     exit $STATUS_ERROR
   fi
 
   local masterPlaylistUrl="$1"
   local channel="$2"
+  local host="$3"
 
   local outputDir
   outputDir="${channel}_$(date +%Y-%m-%d_%H-%M-%S)"
@@ -82,7 +91,7 @@ main() {
     return
   fi
 
-  local masterPlaylist=$(getMasterPlaylist "$masterPlaylistUrl")
+  local masterPlaylist=$(getMasterPlaylist "$masterPlaylistUrl" "$host")
   
   echo "$masterPlaylist" | grep -E "^#EXT-X-STREAM-INF:.*" | nl -w1 -s": "
   read -p "Select media to dowload [1]: " media
@@ -105,11 +114,11 @@ main() {
   
   echo "mediaPlaylistUrl=$mediaPlaylistUrl"
   
-  local mediaPlaylist=$(getMediaPlaylist "$mediaPlaylistUrl")
+  local mediaPlaylist=$(getMediaPlaylist "$mediaPlaylistUrl" "$host")
   local segmentBaseUrl=$(getBaseUrl "$mediaPlaylistUrl")
   local mediaSequence=0
   
-  echo "$mediaPlaylist" | grep -v "^#" | while IFS= read -r segmentUrl ; do processMediaSegment "$((mediaSequence++))" "$segmentUrl" "$segmentBaseUrl" "$outputDir"; done
+  echo "$mediaPlaylist" | grep -v "^#" | while IFS= read -r segmentUrl ; do processMediaSegment "$((mediaSequence++))" "$segmentUrl" "$segmentBaseUrl" "$outputDir" "$host"; done
 }
 
 main "$@"
